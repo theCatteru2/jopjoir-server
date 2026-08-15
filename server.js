@@ -8,10 +8,22 @@ const wss = new WebSocket.Server({ port: PORT }, () => {
 let clients = [];
 
 wss.on('connection', (ws) => {
-    clients.push(ws);
-    console.log(`Jugador conectado. Total: ${clients.length}`);
+    // 1. Buscar el primer ID de slot libre del 1 al 254 (sin repetir)
+    let assigned_slot = 1;
+    const usedSlots = clients.map(c => c.slot);
+    while (usedSlots.includes(assigned_slot) && assigned_slot < 254) {
+        assigned_slot++;
+    }
 
-    // Avisar a todos cuántos jugadores hay
+    ws.slot = assigned_slot;
+    clients.push(ws);
+    console.log(`Jugador conectado con Slot ${ws.slot}. Total: ${clients.length}`);
+
+    // 2. ENVIAR ID ÚNICO AL RECIÉN LLEGADO (Paquete ID 0: [0, slot])
+    const welcomeBuffer = Buffer.from([0, ws.slot]);
+    ws.send(welcomeBuffer);
+
+    // 3. Avisar a todos cuántos jugadores hay en el lobby (Paquete ID 10)
     const lobbyMsg = Buffer.from([10, clients.length, 30]);
     broadcast(lobbyMsg);
 
@@ -25,8 +37,13 @@ wss.on('connection', (ws) => {
     });
 
     ws.on('close', () => {
+        // 4. Si el jugador se desconecta, avisar su muerte/salida para que desaparezca
+        const deadMsg = Buffer.from([3, ws.slot]);
+        broadcast(deadMsg);
+
         clients = clients.filter(c => c !== ws);
-        console.log(`Jugador desconectado. Total: ${clients.length}`);
+        console.log(`Jugador con Slot ${ws.slot} desconectado. Total: ${clients.length}`);
+        
         const updateMsg = Buffer.from([10, clients.length, 30]);
         broadcast(updateMsg);
     });
