@@ -19,24 +19,22 @@ wss.on('connection', (ws) => {
     clients.push(ws);
     console.log(`Jugador conectado con Slot ${ws.slot}. Total: ${clients.length}`);
 
-    // Evitar que un error en este cliente tire abajo el servidor
+    // Evitar que errores de paquetes boten el servidor
     ws.on('error', (err) => {
         console.log(`Error en cliente Slot ${ws.slot}:`, err.message);
     });
 
-    // 2. Enviar ID de Slot al recién llegado (Paquete ID 0)
+    // 2. Enviar ID de Slot al jugador recién conectado (Paquete 0)
     try {
         const welcomeBuffer = Buffer.from([0, ws.slot]);
-        ws.send(welcomeBuffer);
-    } catch (e) {
-        console.log('Error enviando bienvenida:', e.message);
-    }
+        ws.send(welcomeBuffer, { binary: true });
+    } catch (e) {}
 
-    // 3. Avisar a todos la cantidad en lobby (Paquete ID 10)
+    // 3. Avisar a todos los conectados la cantidad en lobby (Paquete 10)
     const lobbyMsg = Buffer.from([10, clients.length, 30]);
     broadcast(lobbyMsg);
 
-    // 4. Retransmitir mensajes a los demás clientes
+    // 4. Retransmitir paquetes a los demás jugadores
     ws.on('message', (message) => {
         clients.forEach(client => {
             if (client !== ws && client.readyState === WebSocket.OPEN) {
@@ -47,7 +45,7 @@ wss.on('connection', (ws) => {
         });
     });
 
-    // 5. Desconexión limpia
+    // 5. Desconexión
     ws.on('close', () => {
         const deadMsg = Buffer.from([3, ws.slot]);
         broadcast(deadMsg);
