@@ -6,11 +6,9 @@ const wss = new WebSocket.Server({ port: PORT }, () => {
 });
 
 let clients = [];
-let lobbyCountdown = null;
-let timeLeft = 5;
 
 wss.on('connection', (ws) => {
-    // 1. Asignar slot libre (1 a 8)
+    // 1. Asignar un slot único libre (del 1 al 8)
     let assigned_slot = 1;
     const usedSlots = clients.map(c => c.slot);
     while (usedSlots.includes(assigned_slot) && assigned_slot <= 8) {
@@ -19,43 +17,25 @@ wss.on('connection', (ws) => {
 
     ws.slot = assigned_slot;
     clients.push(ws);
-    console.log(`Jugador conectado -> Slot ${ws.slot}. Total: ${clients.length}`);
+    console.log(`Jugador conectado -> Slot ${ws.slot}. Total en sala: ${clients.length}`);
 
     ws.on('error', (err) => {
-        console.log(`Error Slot ${ws.slot}:`, err.message);
+        console.log(`Error en cliente Slot ${ws.slot}:`, err.message);
     });
 
-    // 2. Enviar inmediatamente el Paquete 0 con su Slot asignado
+    // 2. ENVIAR INMEDIATAMENTE PAQUETE 0 (ASIGNACIÓN DE SLOT) AL JUGADOR
     try {
         const welcomeBuffer = Buffer.from([0, ws.slot]);
         ws.send(welcomeBuffer, { binary: true });
-    } catch (e) {}
-
-    // 3. Avisar a todos la cantidad actual
-    broadcastLobby();
-
-    // 4. Si hay 2 o más, arrancar la cuenta regresiva centralizada
-    if (clients.length >= 2 && !lobbyCountdown) {
-        timeLeft = 5;
-        lobbyCountdown = setInterval(() => {
-            timeLeft--;
-            
-            // Paquete 10: Actualizar tiempo a todos
-            const syncTimeMsg = Buffer.from([10, clients.length, timeLeft]);
-            broadcast(syncTimeMsg);
-
-            if (timeLeft <= 0) {
-                clearInterval(lobbyCountdown);
-                lobbyCountdown = null;
-                
-                // Paquete 20: ¡INICIAR PARTIDA SIMULTÁNEA!
-                const startMsg = Buffer.from([20]);
-                broadcast(startMsg);
-            }
-        }, 1000);
+    } catch (e) {
+        console.log("Error enviando paquete 0:", e.message);
     }
 
-    // 5. Retransmisión de paquetes
+    // 3. ENVIAR A TODOS EL PAQUETE 10 (CANTIDAD DE JUGADORES CONECTADOS)
+    const lobbyBuffer = Buffer.from([10, clients.length]);
+    broadcast(lobbyBuffer);
+
+    // 4. RETRANSMISIÓN DE PAQUETES DE JUEGO (Movimiento, Sonidos, etc.)
     ws.on('message', (message) => {
         clients.forEach(client => {
             if (client !== ws && client.readyState === WebSocket.OPEN) {
@@ -66,21 +46,18 @@ wss.on('connection', (ws) => {
         });
     });
 
-    // 6. Desconexión
+    // 5. GESTIÓN DE DESCONEXIONES
     ws.on('close', () => {
-        const deadMsg = Buffer.from([3, ws.slot]);
-        broadcast(deadMsg);
+        // Paquete 3: Notificar muerte/desconexión del slot
+        const deadBuffer = Buffer.from([3, ws.slot]);
+        broadcast(deadBuffer);
 
         clients = clients.filter(c => c !== ws);
-        console.log(`Jugador Slot ${ws.slot} desconectado. Quedan: ${clients.length}`);
+        console.log(`Jugador desconectado -> Slot ${ws.slot}. Quedan: ${clients.length}`);
 
-        if (clients.length < 2 && lobbyCountdown) {
-            clearInterval(lobbyCountdown);
-            lobbyCountdown = null;
-            timeLeft = 5;
-        }
-
-        broadcastLobby();
+        // Actualizar contador del lobby
+        const updateLobby = Buffer.from([10, clients.length]);
+        broadcast(updateLobby);
     });
 });
 
@@ -92,9 +69,4 @@ function broadcast(data) {
             } catch (e) {}
         }
     });
-}
-
-function broadcastLobby() {
-    const lobbyMsg = Buffer.from([10, clients.length, timeLeft]);
-    broadcast(lobbyMsg);
 }
